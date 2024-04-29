@@ -8,7 +8,6 @@ This repo contains the codebase for generating Corrosion Inhibitor Molecules usi
 - **checkpoints**: pre-trained model files
 - **Inhibitor1368_data**: all data including SMIELS files, propotion files, token vocabularies and weights for Inhibitor1368_data.
 - **Inhibitor1368_mose_data**:all data including SMIELS files, propotion files, token vocabularies and weights for Inhibitor1368-mose-9.
-- **figures**: all figures generated in the project.
 - **trials**: all loss files in the model training.
 
 ## Installation
