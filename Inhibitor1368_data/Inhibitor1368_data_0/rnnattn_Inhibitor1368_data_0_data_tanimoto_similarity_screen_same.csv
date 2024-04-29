@@ -1,0 +1,14 @@
+id,reconstruct_smiles,raw_smiles,tanimoto_similarity
+1,CC1(C)SC2C(NC(=O)C(N)c3ccccc3)C(=O)N2C1C(=O)O,CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O,0.948535936
+2,CC(=NOCn1cnnc1)c1ccc(F)cc1,CC(=NOCn1cnnc1)c1ccc(Cl)cc1,0.741847826
+3,O(CC1CO1)C[C@@H]1[C@H](OCC2CO2)[C@H](OCC2CO2)[C@@H](OCC2CO2)[C@H](OC)O1,C1OC1CSc1nc(N(CC2CO2)CC2CO2)nn1CC1CO1,0.184234647
+4,c1ccc2[nH]c(CCc3nc4ccccc4[nH]3)nc2c1,ClCc1nc2ccccc2[nH]1,0.651877133
+5,COC1C2OC(C)(C)O[C@H]2C[C@@H]1C1CO1,C1OC1CSc1nc(N(CC2CO2)CC2CO2)nn1CC1CO1,0.197851388
+6,CC(=NOCn1cnnc1)c1ccc(Cl)c(Cl)c1,CC(=NOCn1cnnc1)c1ccc(Cl)cc1,0.806615776
+7,c1ccc2c(c1)N=C1CCCCC1C1(CCCCC1)N2,COc1ccc(O)c(/C=N/N2C(=O)c3ccccc3NC2c2cc(OC)ccc2O)c1,0.287398674
+8,O=[N+]([O-])c1ccc(N/N=C/c2ccc(O)cc2O)c([N+](=O)[O-])c1,CC(C)c1ccc(/C=N/Nc2ccc([N+](=O)[O-])cc2[N+](=O)[O-])cc1,0.745393635
+9,CN(C)CCCN1c2ccccc2CCc2ccc(Cl)cc21,CCCCCCCC[N+](C)(C)c1ccc(/C=N\c2cn(C)n(-c3ccccc3)c2=O)cc1.[Br-],0.297639123
+10,N[C@@H](CC(=O)O)C(=O)O,N[C@@H](Cc1ccccc1)C(=O)O,0.17768595
+11,Clc1ccc(-n2ccnc2)cc1,Clc1cccc(-n2ccnc2)c1,0.790540541
+12,Cc1ncc[nH]1,Clc1ncc[nH]1,0.4
+13,NC(=S)N/N=C/c1cccnc1,NC(=S)N/N=C/c1ccncc1,0.553191489

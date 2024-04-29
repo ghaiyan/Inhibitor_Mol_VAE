@@ -1,0 +1,7 @@
+COP(=O)(O)C(O)C(O)c1ccccccc1
+O=C1cccc(O)c2ccccc12
+Clc1ncc[nH]1
+Nc1nc(/N=C/c2cccs2)c1
+NCC(=S)NCNCNC(C(=O)C(=O)C)C
+Cc1ccc(-c2nc3ccccc(-c3)n2)cc1
+CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC1=N(=O)C1
