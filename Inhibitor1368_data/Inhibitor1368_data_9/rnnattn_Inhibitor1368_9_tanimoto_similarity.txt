@@ -1,0 +1,3 @@
+reconstruct_smiles	raw_smiles	tanimoto_similarity
+CCCCCCCCCCCCCCCC[N+](C)(C)c1ccc(/C=N/c2cn(C)n(-c3ccccc3)c2=O)cc1.[Br-]	CCCCCCCCCCCCCCCC[N+](C)(C)c1ccc(/C=N/c2cn(C)n(-c3ccccc3)c2=O)cc1.[Br-]	1
+CCCCCCCCCCCC[N+](C)(C)c1ccc(C=NC(=S)N=Cc2ccc([N+](C)(C)CCCCCCCCCCCC)cc2)cc1.[Br-].[Br-]	CCCCCCCCCCCCCCCC[N+](C)(C)c1ccc(C=NC(=S)N=Cc2ccc([N+](C)(C)CCCCCCCCCCCCCCCC)cc2)cc1.[Br-].[Br-]	1
