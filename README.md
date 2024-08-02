@@ -7,7 +7,6 @@ This repo contains the codebase for generating Corrosion Inhibitor Molecules usi
 - **scripts**: scripts for training models, generating samples and performing calculations
 - **checkpoints**: pre-trained model files
 - **Inhibitor1368_data**: all data including SMIELS files, propotion files, token vocabularies and weights for Inhibitor1368_data.
-- **Inhibitor1368_mose_data**:all data including SMIELS files, propotion files, token vocabularies and weights for Inhibitor1368-mose-9.
 - **trials**: all loss files in the model training.
 
 ## Installation
@@ -121,3 +120,8 @@ Then, you will obtain the caluresults.txt file including the id, homo_energy, lu
 
 ## Ploting
 run the codes of 2-plot-metrics.ipynb to plot figures in this project.
+
+## Batch generation of new corrosion inhibitor molecules
+run the codes of genNewSmiles.ipynb in this project.
+
+##
