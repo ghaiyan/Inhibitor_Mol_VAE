@@ -13,8 +13,32 @@ from transvae.tvae_util import *
 from transvae.opt import NoamOpt
 from transvae.data import vae_data_gen, make_std_mask
 from transvae.loss import vae_loss, trans_vae_loss
-
-
+from rdkit import Chem
+from rdkit.Chem import QED, Descriptors, Lipinski, rdMolDescriptors
+import pandas as pd
+from torch.autograd import Variable
+import joblib
+def compute_properties(smiles):
+    if pd.isna(smiles):  # 检查smiles是否为NaN
+        return None, None  # 如果是NaN，返回None
+    mol = Chem.MolFromSmiles(smiles)
+    if mol:
+        qed = QED.qed(mol)
+        logp = Descriptors.MolLogP(mol)
+        molwt = Descriptors.MolWt(mol)
+        hba = Lipinski.NumHAcceptors(mol)
+        hbd = Lipinski.NumHDonors(mol)
+        tpsa = rdMolDescriptors.CalcTPSA(mol)
+        num_rot_bonds = Lipinski.NumRotatableBonds(mol)
+        n_count = len([atom for atom in mol.GetAtoms() if atom.GetSymbol() == 'N'])
+        s_count = len([atom for atom in mol.GetAtoms() if atom.GetSymbol() == 'S'])
+        o_count = len([atom for atom in mol.GetAtoms() if atom.GetSymbol() == 'O'])
+        p_count = len([atom for atom in mol.GetAtoms() if atom.GetSymbol() == 'P'])
+        # 将SMILES字符串作为列表的第一个元素返回
+        return [smiles, qed, logp, molwt, hba, hbd, tpsa, num_rot_bonds, n_count, s_count, o_count, p_count]
+    else:
+        # 如果SMILES无效，返回None，同时保留SMILES字符串以便于识别
+        return [smiles] + [None] * 11
 ####### MODEL SHELL ##########
 
 class VAEShell():
@@ -27,7 +51,7 @@ class VAEShell():
         self.name = name
         if 'BATCH_SIZE' not in self.params.keys():
             #self.params['BATCH_SIZE'] = 500
-            self.params['BATCH_SIZE'] = 2000
+            self.params['BATCH_SIZE'] = 16
         if 'BATCH_CHUNKS' not in self.params.keys():
             self.params['BATCH_CHUNKS'] = 5
         if 'BETA_INIT' not in self.params.keys():
@@ -39,7 +63,7 @@ class VAEShell():
         if 'LR' not in self.params.keys():
             self.params['LR_SCALE'] = 1
         if 'WARMUP_STEPS' not in self.params.keys():
-            self.params['WARMUP_STEPS'] = 10000
+            self.params['WARMUP_STEPS'] = 100
         if 'EPS_SCALE' not in self.params.keys():
             self.params['EPS_SCALE'] = 1
         if 'CHAR_DICT' in self.params.keys():
@@ -53,11 +77,16 @@ class VAEShell():
         self.data_gen = vae_data_gen
 
         ### Sequence length hard-coded into model
-        """ transvae setting
+        """ transvae setting,9 features
         self.src_len = 134
         self.tgt_len = 133
-"""
-        #rnn_models setting
+"""     
+        """ transvae setting,2 features
+        self.src_len = 127
+        self.tgt_len = 126"""
+
+        """
+        #rnn_models setting"""
         self.src_len = 126
         self.tgt_len = 125
         ### Build empty structures for data storage
@@ -209,10 +238,10 @@ class VAEShell():
                 for i in range(self.params['BATCH_CHUNKS']):
                     batch_data = data[i*self.chunk_size:(i+1)*self.chunk_size,:]
                     #mols_data = batch_data[:,:-1]
-                    mols_data = batch_data[:,:-9]
+                    mols_data = batch_data[:,:-2]
                     #print("mols_data.shape:",mols_data.shape)
                     #props_data = batch_data[:,-1]
-                    props_data = batch_data[:,-9]
+                    props_data = batch_data[:,-2]
                     #print("props_data.shape:",props_data.shape)
                     if self.use_gpu:
                         mols_data = mols_data.cuda()
@@ -290,8 +319,8 @@ class VAEShell():
                     batch_data = data[i*self.chunk_size:(i+1)*self.chunk_size,:]
                     #mols_data = batch_data[:,:-1]
                     #props_data = batch_data[:,-1]
-                    mols_data = batch_data[:,:-9]
-                    props_data = batch_data[:,-9]
+                    mols_data = batch_data[:,:-2]
+                    props_data = batch_data[:,-2]
                     if self.use_gpu:
                         mols_data = mols_data.cuda()
                         props_data = props_data.cuda()
@@ -303,7 +332,7 @@ class VAEShell():
                     src_mask = (src != self.pad_idx).unsqueeze(-2)
                     tgt_mask = make_std_mask(tgt, self.pad_idx)
                     #scores = Variable(data[:,-1])
-                    scores = Variable(data[:,-9])
+                    scores = Variable(data[:,-2])
 
                     if self.model_type == 'transformer':
                         x_out, mu, logvar, pred_len, pred_prop = self.model(src, tgt, src_mask, tgt_mask)
@@ -457,7 +486,8 @@ class VAEShell():
         decoded = tgt[:,1:]
         return decoded
 
-    def reconstruct(self, data,props, method='greedy', log=True, return_mems=True, return_str=True):
+
+    def reconstruct(self, data,props, method='greedy',num_reconstructions=1, log=True, return_mems=True, return_str=True):
         """
         Method for encoding input smiles into memory and decoding back
         into smiles
@@ -498,8 +528,8 @@ class VAEShell():
                 batch_data = data[i*self.chunk_size:(i+1)*self.chunk_size,:]
                 #mols_data = batch_data[:,:-1]
                 #props_data = batch_data[:,-1]
-                mols_data = batch_data[:,:-9]
-                props_data = batch_data[:,-9]
+                mols_data = batch_data[:,:-2]
+                props_data = batch_data[:,-2]
                 if self.use_gpu:
                     mols_data = mols_data.cuda()
                     props_data = props_data.cuda()
@@ -508,31 +538,380 @@ class VAEShell():
                 src_mask = (src != self.pad_idx).unsqueeze(-2)
 
                 ### Run through encoder to get memory
-                if self.model_type == 'transformer':
-                    _, mem, _, _ = self.model.encode(src, src_mask)
-                else:
-                    _, mem, _ = self.model.encode(src)
-                start = j*self.batch_size+i*self.chunk_size
-                stop = j*self.batch_size+(i+1)*self.chunk_size
-                mems[start:stop, :] = mem.detach().cpu()
+                for _ in range(num_reconstructions):
+                    if self.model_type == 'transformer':
+                        _, mem, _, _ = self.model.encode(src, src_mask)
+                    else:
+                        _, mem, _ = self.model.encode(src)
+                    start = j*self.batch_size+i*self.chunk_size
+                    stop = j*self.batch_size+(i+1)*self.chunk_size
+                    mems[start:stop, :] = mem.detach().cpu()
+                    print("mems.shape:",mems.shape)
 
                 ### Decode logic
-                if method == 'greedy':
-                    decoded = self.greedy_decode(mem, src_mask=src_mask)
-                else:
-                    decoded = None
-
-                if return_str:
-                    decoded = decode_mols(decoded, self.params['ORG_DICT'])
-                    decoded_smiles += decoded
-                else:
-                    decoded_smiles.append(decoded)
+                
+                    if method == 'greedy':
+                        decoded = self.greedy_decode(mem, src_mask=src_mask)
+                    else:
+                        decoded = None
+    
+                    if return_str:
+                        decoded = decode_mols(decoded, self.params['ORG_DICT'])
+                        decoded_smiles += decoded
+                    else:
+                        decoded_smiles.append(decoded)
 
         if return_mems:
             return decoded_smiles, mems.detach().numpy()
         else:
             return decoded_smiles
 
+    def reconstruct_log(self, data, props, method='greedy', num_reconstructions=1,noise_type='gaussian', base_noise_std=0.1, noise_factor=1.1, log=True, return_mems=True, return_str=True):
+        """
+        Method for encoding input smiles into memory and decoding back
+        into smiles
+    
+        Arguments:
+            data (np.array, required): Input array consisting of smiles and property
+            method (str): Method for decoding. Greedy decoding is currently the only
+                          method implemented. May implement beam search, top_p or top_k
+                          in future versions.
+            base_noise_std (float): Base standard deviation of Gaussian noise to be added to memory vectors.
+            noise_factor (float): Factor by which the noise standard deviation increases exponentially.
+            log (bool): If true, tracks reconstruction progress in separate log file
+            return_mems (bool): If true, returns memory vectors in addition to decoded SMILES
+            return_str (bool): If true, translates decoded vectors into SMILES strings. If false
+                               returns tensor of token ids
+        Returns:
+            decoded_smiles (list): Decoded smiles data - either decoded SMILES strings or tensor of
+                                   token ids
+            mems (np.array): Array of model memory vectors
+        """
+        data = vae_data_gen(data, props=props, char_dict=self.params['CHAR_DICT'])
+    
+        data_iter = torch.utils.data.DataLoader(data,
+                                                batch_size=self.params['BATCH_SIZE'],
+                                                shuffle=False, num_workers=0,
+                                                pin_memory=False, drop_last=True)
+        self.batch_size = self.params['BATCH_SIZE']
+        self.chunk_size = self.batch_size // self.params['BATCH_CHUNKS']
+    
+        self.model.eval()
+        decoded_smiles = []
+        mems = torch.empty((data.shape[0], self.params['d_latent'])).cpu()
+        for j, data in enumerate(data_iter):
+            if log:
+                log_file = open('calcs/{}_progress.txt'.format(self.name), 'a')
+                log_file.write('{}\n'.format(j))
+                log_file.close()
+            for i in range(self.params['BATCH_CHUNKS']):
+                batch_data = data[i*self.chunk_size:(i+1)*self.chunk_size,:]
+                mols_data = batch_data[:,:-2]
+                props_data = batch_data[:,-2]
+                if self.use_gpu:
+                    mols_data = mols_data.cuda()
+                    props_data = props_data.cuda()
+    
+                src = Variable(mols_data).long()
+                src_mask = (src != self.pad_idx).unsqueeze(-2)
+    
+                ### Run through encoder to get memory
+                for recon_idx in range(num_reconstructions):
+                    if self.model_type == 'transformer':
+                        _, mem, _, _ = self.model.encode(src, src_mask)
+                    else:
+                        _, mem, _ = self.model.encode(src)
+                    start = j*self.batch_size+i*self.chunk_size
+                    stop = j*self.batch_size+(i+1)*self.chunk_size
+                    mems[start:stop, :] = mem.detach().cpu()
+                    if recon_idx == 0:
+                        noise_std = 0.0  # No noise for the first reconstruction
+                    else:
+                        # Calculate noise standard deviation based on exponential growth
+                        noise_std = base_noise_std * (noise_factor ** recon_idx)
+                        
+    
+                    # Add noise to the memory
+                    if noise_type == 'gaussian':
+                        noise = torch.randn_like(mem) * noise_std
+                    elif noise_type == 'poisson':
+                        noise = torch.poisson(torch.full_like(mem, noise_std))
+                    elif noise_type == 'uniform':
+                        noise = torch.rand_like(mem) * noise_std * 2 - noise_std  # Uniform noise in range [-noise_std, noise_std]
+                    else:
+                        raise ValueError("Unsupported noise type. Choose from 'gaussian', 'poisson', 'uniform'.")
+                    
+                    mem_with_noise = mem + noise
+    
+                    ### Decode logic
+                    if method == 'greedy':
+                        decoded = self.greedy_decode(mem_with_noise, src_mask=src_mask)
+                    else:
+                        decoded = None
+    
+                    if return_str:
+                        decoded = decode_mols(decoded, self.params['ORG_DICT'])
+                        decoded_smiles += decoded
+                    else:
+                        decoded_smiles.append(decoded)
+    
+        if return_mems:
+            return decoded_smiles, mems.detach().numpy()
+        else:
+            return decoded_smiles
+
+
+    def reconstruct_log1(self, data, props, target_ie, target_concentration, method='greedy', num_reconstructions=1, noise_type='gaussian', base_noise_std=0.1, noise_factor=1.1, log=True, return_mems=True, return_str=True):
+            """
+            Method for encoding input smiles into memory and decoding back
+            into smiles
+    
+            Arguments:
+                data (np.array, required): Input array consisting of smiles and property
+                target_ie (float, required): Target IE value
+                target_concentration (float, required): Target concentration value
+                method (str): Method for decoding. Greedy decoding is currently the only
+                              method implemented. May implement beam search, top_p or top_k
+                              in future versions.
+                base_noise_std (float): Base standard deviation of Gaussian noise to be added to memory vectors.
+                noise_factor (float): Factor by which the noise standard deviation increases exponentially.
+                log (bool): If true, tracks reconstruction progress in separate log file
+                return_mems (bool): If true, returns memory vectors in addition to decoded SMILES
+                return_str (bool): If true, translates decoded vectors into SMILES strings. If false
+                                   returns tensor of token ids
+            Returns:
+                decoded_results (list): Decoded results data - list of tuples (SMILES, predicted IE, concentration)
+                mems (np.array): Array of model memory vectors
+            """
+            # 加载训练好的模型
+            model_filename = 'best_rf_model.joblib'
+            best_model = joblib.load(model_filename)
+            print(f"Loaded model from {model_filename}")
+    
+            data = vae_data_gen(data, props=props, char_dict=self.params['CHAR_DICT'])
+            data_iter = torch.utils.data.DataLoader(data,
+                                                    batch_size=self.params['BATCH_SIZE'],
+                                                    shuffle=False, num_workers=0,
+                                                    pin_memory=False, drop_last=True)
+            self.batch_size = self.params['BATCH_SIZE']
+            self.chunk_size = self.batch_size // self.params['BATCH_CHUNKS']
+    
+            self.model.eval()
+            decoded_results = []
+            mems = torch.empty((data.shape[0], self.params['d_latent'])).cpu()
+            for j, data in enumerate(data_iter):
+                if log:
+                    log_file = open('calcs/{}_progress.txt'.format(self.name), 'a')
+                    log_file.write('{}\n'.format(j))
+                    log_file.close()
+                for i in range(self.params['BATCH_CHUNKS']):
+                    batch_data = data[i*self.chunk_size:(i+1)*self.chunk_size,:]
+                    mols_data = batch_data[:,:-2]
+                    props_data = batch_data[:,-2]
+                    if self.use_gpu:
+                        mols_data = mols_data.cuda()
+                        props_data = props_data.cuda()
+    
+                    src = Variable(mols_data).long()
+                    src_mask = (src != self.pad_idx).unsqueeze(-2)
+    
+                    for recon_idx in range(num_reconstructions):
+                        if self.model_type == 'transformer':
+                            _, mem, _, _ = self.model.encode(src, src_mask)
+                        else:
+                            _, mem, _ = self.model.encode(src)
+                        start = j*self.batch_size+i*self.chunk_size
+                        stop = j*self.batch_size+(i+1)*self.chunk_size
+                        mems[start:stop, :] = mem.detach().cpu()
+                        if recon_idx == 0:
+                            noise_std = 0.0  # No noise for the first reconstruction
+                        else:
+                            # Calculate noise standard deviation based on exponential growth
+                            noise_std = base_noise_std * (noise_factor ** recon_idx)
+                            # Random noise standard deviation between base and max
+                           # noise_std = base_noise_std + torch.rand(1).item() * (max_noise_std - base_noise_std)
+                            
+                            
+    
+                        # Add noise to the memory
+                        if noise_type == 'gaussian':
+                            noise = torch.randn_like(mem) * noise_std
+                        elif noise_type == 'poisson':
+                            noise = torch.poisson(torch.full_like(mem, noise_std))
+                        elif noise_type == 'uniform':
+                            noise = torch.rand_like(mem) * noise_std * 2 - noise_std  # Uniform noise in range [-noise_std, noise_std]
+                        else:
+                            raise ValueError("Unsupported noise type. Choose from 'gaussian', 'poisson', 'uniform'.")
+    
+                        mem_with_noise = mem + noise
+    
+                        # Decode logic
+                        if method == 'greedy':
+                            decoded = self.greedy_decode(mem_with_noise, src_mask=src_mask)
+                        else:
+                            decoded = None
+    
+                        if return_str:
+                            decoded = decode_mols(decoded, self.params['ORG_DICT'])
+                            for smiles in decoded:
+                                properties = compute_properties(smiles)
+                                if properties:
+                                    properties.append(target_concentration)
+                                    feature_names = ['QED', 'LogP', 'MolWt', 'HBA', 'HBD', 'TPSA', 'NumRotBonds', 'Concentration_mM', 'N_count', 'S_count', 'O_count', 'P_count']
+                                    X_new = pd.DataFrame([properties[1:]], columns=feature_names)
+                                    predicted_ie = best_model.predict(X_new)[0]
+                                    if abs(predicted_ie - target_ie) < 0.1:
+                                        decoded_results.append((smiles, predicted_ie, target_concentration))
+                                        break
+                        else:
+                            decoded_results.append((decoded, None, target_concentration))
+    
+            if return_mems:
+                return decoded_results, mems.detach().numpy()
+            else:
+                return decoded_results
+
+            
+    def reconstruct_rand(self, data, props, target_ie, target_concentration,method='greedy', num_reconstructions=1, noise_type='gaussian', base_noise_std=0.1, max_noise_std=0.5, log=True, return_mems=True, return_str=True):
+        """
+        Method for encoding input smiles into memory and decoding back
+        into smiles
+    
+        Arguments:
+            data (np.array, required): Input array consisting of smiles and property
+            method (str): Method for decoding. Greedy decoding is currently the only
+                          method implemented. May implement beam search, top_p or top_k
+                          in future versions.
+            base_noise_std (float): Base standard deviation of Gaussian noise to be added to memory vectors.
+            max_noise_std (float): Maximum standard deviation of Gaussian noise to be added to memory vectors.
+            log (bool): If true, tracks reconstruction progress in separate log file
+            return_mems (bool): If true, returns memory vectors in addition to decoded SMILES
+            return_str (bool): If true, translates decoded vectors into SMILES strings. If false
+                               returns tensor of token ids
+        Returns:
+            decoded_smiles (list): Decoded smiles data - either decoded SMILES strings or tensor of
+                                   token ids
+            mems (np.array): Array of model memory vectors
+        """
+        # 加载训练好的模型
+        model_filename = 'best_rf_model.joblib'
+        best_model = joblib.load(model_filename)
+        print(f"Loaded model from {model_filename}")
+        data = vae_data_gen(data, props=props, char_dict=self.params['CHAR_DICT'])
+    
+        data_iter = torch.utils.data.DataLoader(data,
+                                                batch_size=self.params['BATCH_SIZE'],
+                                                shuffle=False, num_workers=0,
+                                                pin_memory=False, drop_last=True)
+        self.batch_size = self.params['BATCH_SIZE']
+        self.chunk_size = self.batch_size // self.params['BATCH_CHUNKS']
+    
+        self.model.eval()
+        decoded_results = []
+        mems = torch.empty((data.shape[0], self.params['d_latent'])).cpu()
+        for j, data in enumerate(data_iter):
+            if log:
+                log_file = open('calcs/{}_progress.txt'.format(self.name), 'a')
+                log_file.write('{}\n'.format(j))
+                log_file.close()
+            for i in range(self.params['BATCH_CHUNKS']):
+                batch_data = data[i*self.chunk_size:(i+1)*self.chunk_size,:]
+                mols_data = batch_data[:,:-2]
+                props_data = batch_data[:,-2]
+                if self.use_gpu:
+                    mols_data = mols_data.cuda()
+                    props_data = props_data.cuda()
+    
+                src = Variable(mols_data).long()
+                src_mask = (src != self.pad_idx).unsqueeze(-2)
+    
+                ### Run through encoder to get memory
+                for recon_idx in range(num_reconstructions):
+                    if self.model_type == 'transformer':
+                        _, mem, _, _ = self.model.encode(src, src_mask)
+                    else:
+                        _, mem, _ = self.model.encode(src)
+                    start = j*self.batch_size+i*self.chunk_size
+                    stop = j*self.batch_size+(i+1)*self.chunk_size
+                    mems[start:stop, :] = mem.detach().cpu()
+    
+                    # Random noise standard deviation between base and max
+                    noise_std = base_noise_std + torch.rand(1).item() * (max_noise_std - base_noise_std)
+    
+                    # Add Gaussian noise to the memory
+                    # Add noise to the memory
+                    if noise_type == 'gaussian':
+                        noise = torch.randn_like(mem) * noise_std
+                    elif noise_type == 'poisson':
+                        noise = torch.poisson(torch.full_like(mem, noise_std))
+                    elif noise_type == 'uniform':
+                        noise = torch.rand_like(mem) * noise_std * 2 - noise_std  # Uniform noise in range [-noise_std, noise_std]
+                    else:
+                        raise ValueError("Unsupported noise type. Choose from 'gaussian', 'poisson', 'uniform'.")
+                    mem_with_noise = mem + noise
+    
+                    # Decode logic
+                    if method == 'greedy':
+                        decoded = self.greedy_decode(mem_with_noise, src_mask=src_mask)
+                    else:
+                        decoded = None
+
+                    if return_str:
+                        decoded = decode_mols(decoded, self.params['ORG_DICT'])
+                        for smiles in decoded:
+                            properties = compute_properties(smiles)
+                            if properties:
+                                properties.append(target_concentration)
+                                feature_names = ['QED', 'LogP', 'MolWt', 'HBA', 'HBD', 'TPSA', 'NumRotBonds', 'Concentration_mM', 'N_count', 'S_count', 'O_count', 'P_count']
+                                X_new = pd.DataFrame([properties[1:]], columns=feature_names)
+                                predicted_ie = best_model.predict(X_new)[0]
+                                if abs(predicted_ie - target_ie) < 0.1:
+                                    decoded_results.append((smiles, predicted_ie, target_concentration))
+                                    break
+                    else:
+                        decoded_results.append((decoded, None, target_concentration))
+
+        if return_mems:
+            return decoded_results, mems.detach().numpy()
+        else:
+            return decoded_results
+
+
+   
+    """
+    def generate_new_molecules(self, props, num_prop=2, num_samples=100, method='greedy', return_str=True):
+        self.model.eval()  # Set model to evaluation mode
+        generated_smiles = []
+        print("num_prop",num_prop)
+        for i in range(num_samples):
+        # Sample from the latent space
+            print("self.params['d_latent']",self.params['d_latent'])
+            z = torch.randn(num_prop, self.params['d_latent'])
+            print("z.shape()",z.shape)
+            prop = torch.tensor([[props[i % len(props)]]], dtype=z.dtype).expand(z.shape[0], -1)
+            # Ensure props is used cyclically if less than num_samples
+            print("prop.shape:",prop.shape)
+            if self.use_gpu:
+                z = z.cuda()
+                prop = prop.cuda()
+
+            # Concatenate latent vector with property
+            z_prop = torch.cat((z, prop), dim=-1)
+            print("z_prop.shape()",z_prop.shape)
+            # Decode from the latent space
+            if method == 'greedy':
+                decoded = self.greedy_decode(z_prop)
+            else:
+                decoded = None  # 可以实现其他解码方法
+            
+            if return_str:
+                decoded = decode_mols(decoded, self.params['ORG_DICT'])
+                generated_smiles.append(decoded[0])
+            else:
+                generated_smiles.append(decoded)
+        
+        return generated_smiles
+    """
     def sample(self, n, method='greedy', sample_mode='rand',
                         sample_dims=None, k=None, return_str=True,
                         condition=[]):
@@ -607,8 +986,8 @@ class VAEShell():
                 batch_data = data[i*self.chunk_size:(i+1)*self.chunk_size,:]
                 #mols_data = batch_data[:,:-1]
                 #props_data = batch_data[:,-1]
-                mols_data = batch_data[:,:-9]
-                props_data = batch_data[:,-9]
+                mols_data = batch_data[:,:-2]
+                props_data = batch_data[:,-2]
                 if self.use_gpu:
                     mols_data = mols_data.cuda()
                     props_data = props_data.cuda()
@@ -1135,3 +1514,9 @@ class SublayerConnection(nn.Module):
     def forward(self, x, sublayer):
         "Apply residual connection to any sublayer with the same size"
         return x + self.dropout(sublayer(self.norm(x)))
+
+
+
+
+
+
